@@ -52,9 +52,6 @@ st.markdown("""
         padding: 0.3rem;
         border-radius: 5px;
     }
-    .stDataFrame {
-        font-size: 0.9rem;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -110,7 +107,7 @@ def carregar_dados_completos():
          'Sexta': '[CBI] BUFALA 9.823/1 (atividade remota)', 'Sábado': ''}
     ]
     
-    # Consultores (amostra)
+    # Consultores
     consultores = [
         {'Nome': 'RODRIGO FARIAS', 'Categoria': 'Consultor', 'Função': 'CONSULTOR EBI AUTOMOB', 
          'Segunda': '[EBI] AUTOMOB 8.542/22 (atividade remota)', 'Terça': '[EBI] AUTOMOB 8.542/22 (atividade remota)', 
@@ -129,21 +126,32 @@ def carregar_dados_completos():
     todos_dados = gerentes + lideres + consultores_chave + consultores
     df = pd.DataFrame(todos_dados)
     
-    # Formato longo para análises
-    df_long = pd.melt(df, 
-                     id_vars=['Nome', 'Categoria', 'Função'],
-                     value_vars=['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'],
-                     var_name='Dia', 
-                     value_name='Atividade')
+    return df
+
+def criar_dataframe_long(df):
+    """Converte o DataFrame para formato longo"""
+    dias = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado']
     
-    return df, df_long
+    dados_long = []
+    for _, row in df.iterrows():
+        for dia in dias:
+            dados_long.append({
+                'Nome': row['Nome'],
+                'Categoria': row['Categoria'],
+                'Função': row['Função'],
+                'Dia': dia,
+                'Atividade': row[dia]
+            })
+    
+    return pd.DataFrame(dados_long)
 
 def main():
     st.markdown('<div class="main-header">📅 AGENDA SEMANAL ONLINE</div>', unsafe_allow_html=True)
     st.markdown('### 17 a 21 de Novembro de 2025')
     
     # Carregar dados
-    df, df_long = carregar_dados_completos()
+    df = carregar_dados_completos()
+    df_long = criar_dataframe_long(df)
     
     # Sidebar
     st.sidebar.header("🔍 Filtros e Navegação")
@@ -182,29 +190,27 @@ def mostrar_visao_geral(df, df_filtrado):
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.metric("Total de Pessoas", df['Nome'].nunique())
+        total_pessoas = df['Nome'].nunique()
+        st.metric("Total de Pessoas", total_pessoas)
     
     with col2:
-        st.metric("Atividades Agendadas", df_filtrado[df_filtrado['Atividade'] != ''].shape[0])
+        atividades_totais = df_filtrado[df_filtrado['Atividade'] != ''].shape[0]
+        st.metric("Atividades Agendadas", atividades_totais)
     
     with col3:
-        st.metric("Atividades Remotas", df_filtrado[df_filtrado['Atividade'].str.contains('remota', na=False)].shape[0])
+        atividades_remotas = df_filtrado[df_filtrado['Atividade'].str.contains('remota', na=False)].shape[0]
+        st.metric("Atividades Remotas", atividades_remotas)
     
     with col4:
-        st.metric("Folgas/Férias", df_filtrado[df_filtrado['Atividade'].str.contains('FOLGA|FERIADO|FÉRIAS', na=False)].shape[0])
+        folgas_feriados = df_filtrado[df_filtrado['Atividade'].str.contains('FOLGA|FERIADO|FÉRIAS', na=False)].shape[0]
+        st.metric("Folgas/Férias", folgas_feriados)
     
-    # Tabela principal
+    # Tabela principal - CORRIGIDA
     st.subheader("🎯 Agenda Consolidada")
     
-    # Criar tabela pivot
-    pivot_df = df.pivot_table(
-        index=['Nome', 'Categoria', 'Função'], 
-        columns=['Dia'],
-        values='Atividade',
-        aggfunc='first'
-    ).reset_index()
-    
-    st.dataframe(pivot_df, use_container_width=True, height=400)
+    # Usar o DataFrame original diretamente (já está no formato correto)
+    colunas_para_mostrar = ['Nome', 'Categoria', 'Função', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado']
+    st.dataframe(df[colunas_para_mostrar], use_container_width=True, height=400)
 
 def mostrar_agenda_pessoa(df, df_filtrado):
     st.markdown('<div class="sub-header">👥 Agenda Individual</div>', unsafe_allow_html=True)
@@ -226,7 +232,23 @@ def mostrar_agenda_pessoa(df, df_filtrado):
         
         # Agenda da pessoa
         st.subheader("📅 Agenda da Semana")
-        st.dataframe(dados_pessoa[['Dia', 'Atividade']].set_index('Dia'), use_container_width=True)
+        
+        if not dados_pessoa.empty:
+            # Mostrar em formato de tabela
+            agenda_table = dados_pessoa[['Dia', 'Atividade']].set_index('Dia')
+            st.dataframe(agenda_table, use_container_width=True)
+            
+            # Estatísticas pessoais
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                dias_com_atividade = dados_pessoa[dados_pessoa['Atividade'] != ''].shape[0]
+                st.metric("Dias com Atividade", dias_com_atividade)
+            with col2:
+                dias_remotos = dados_pessoa[dados_pessoa['Atividade'].str.contains('remota', na=False)].shape[0]
+                st.metric("Dias Remotos", dias_remotos)
+            with col3:
+                dias_folga = dados_pessoa[dados_pessoa['Atividade'].str.contains('FOLGA|FERIADO|FÉRIAS', na=False)].shape[0]
+                st.metric("Dias de Folga", dias_folga)
 
 def mostrar_estatisticas(df_filtrado):
     st.markdown('<div class="sub-header">📊 Estatísticas e Análises</div>', unsafe_allow_html=True)
@@ -235,46 +257,108 @@ def mostrar_estatisticas(df_filtrado):
     
     with col1:
         # Gráfico de atividades por categoria
+        st.subheader("📈 Atividades por Categoria")
         atividades_por_categoria = df_filtrado[df_filtrado['Atividade'] != ''].groupby('Categoria').size()
-        fig_cat = px.bar(
-            x=atividades_por_categoria.index,
-            y=atividades_por_categoria.values,
-            labels={'x': 'Categoria', 'y': 'Número de Atividades'},
-            title='Atividades por Categoria'
-        )
-        st.plotly_chart(fig_cat, use_container_width=True)
+        
+        if not atividades_por_categoria.empty:
+            fig_cat = px.bar(
+                x=atividades_por_categoria.index,
+                y=atividades_por_categoria.values,
+                labels={'x': 'Categoria', 'y': 'Número de Atividades'},
+                title='Atividades por Categoria',
+                color=atividades_por_categoria.values
+            )
+            st.plotly_chart(fig_cat, use_container_width=True)
+        else:
+            st.info("Nenhuma atividade encontrada com os filtros atuais.")
     
     with col2:
         # Gráfico de distribuição por dia
+        st.subheader("📅 Distribuição por Dia")
         atividades_por_dia = df_filtrado[df_filtrado['Atividade'] != ''].groupby('Dia').size()
-        fig_dia = px.pie(
-            values=atividades_por_dia.values,
-            names=atividades_por_dia.index,
-            title='Atividades por Dia da Semana'
+        
+        if not atividades_por_dia.empty:
+            fig_dia = px.pie(
+                values=atividades_por_dia.values,
+                names=atividades_por_dia.index,
+                title='Atividades por Dia da Semana'
+            )
+            st.plotly_chart(fig_dia, use_container_width=True)
+        else:
+            st.info("Nenhuma atividade encontrada com os filtros atuais.")
+    
+    # Análise de modalidade de trabalho
+    st.subheader("💻 Modalidade de Trabalho")
+    
+    modalidades = []
+    for atividade in df_filtrado['Atividade']:
+        if atividade and atividade != '':
+            if 'remota' in str(atividade).lower():
+                modalidades.append('Remota')
+            elif any(x in str(atividade).upper() for x in ['FERIADO', 'FOLGA', 'FÉRIAS']):
+                modalidades.append('Folga/Férias')
+            else:
+                modalidades.append('Presencial')
+    
+    if modalidades:
+        modalidade_df = pd.DataFrame({'Modalidade': modalidades})
+        contagem_modalidades = modalidade_df['Modalidade'].value_counts()
+        
+        fig_modalidade = px.bar(
+            x=contagem_modalidades.index,
+            y=contagem_modalidades.values,
+            labels={'x': 'Modalidade', 'y': 'Quantidade'},
+            color=contagem_modalidades.values,
+            title='Distribuição por Modalidade de Trabalho'
         )
-        st.plotly_chart(fig_dia, use_container_width=True)
+        st.plotly_chart(fig_modalidade, use_container_width=True)
 
 def mostrar_busca_avancada(df_filtrado):
     st.markdown('<div class="sub-header">🔍 Busca Avançada</div>', unsafe_allow_html=True)
     
-    termo_busca = st.text_input("🔎 Buscar nas atividades:", placeholder="Ex: AUTOMOB, SUPPORT, FOLGA...")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Busca por termo
+        termo_busca = st.text_input("🔎 Buscar nas atividades:", placeholder="Ex: AUTOMOB, SUPPORT, FOLGA...")
+    
+    with col2:
+        # Busca por tipo
+        tipo_busca = st.selectbox(
+            "Filtrar por tipo:",
+            ["Todos", "Atividades Remotas", "Folgas/Férias", "Feriados"]
+        )
+    
+    # Aplicar filtros de busca
+    resultados = df_filtrado.copy()
     
     if termo_busca:
-        resultados = df_filtrado[df_filtrado['Atividade'].str.contains(termo_busca, case=False, na=False)]
-        st.subheader(f"📋 Resultados ({len(resultados)} encontrados)")
+        resultados = resultados[resultados['Atividade'].str.contains(termo_busca, case=False, na=False)]
+    
+    if tipo_busca == "Atividades Remotas":
+        resultados = resultados[resultados['Atividade'].str.contains('remota', case=False, na=False)]
+    elif tipo_busca == "Folgas/Férias":
+        resultados = resultados[resultados['Atividade'].str.contains('FOLGA|FÉRIAS', na=False)]
+    elif tipo_busca == "Feriados":
+        resultados = resultados[resultados['Atividade'].str.contains('FERIADO', na=False)]
+    
+    # Mostrar resultados
+    st.subheader(f"📋 Resultados da Busca ({len(resultados)} encontrados)")
+    
+    if not resultados.empty:
         st.dataframe(resultados, use_container_width=True)
         
-        # Exportação
-        if st.button("📤 Exportar para CSV"):
+        # Opção de exportação
+        if st.button("📤 Exportar Resultados para CSV"):
             csv = resultados.to_csv(index=False)
             st.download_button(
                 label="Baixar CSV",
                 data=csv,
-                file_name=f"busca_agenda_{datetime.now().strftime('%Y%m%d')}.csv",
+                file_name=f"resultados_busca_{datetime.now().strftime('%Y%m%d')}.csv",
                 mime="text/csv"
             )
     else:
-        st.info("Digite um termo para buscar nas atividades.")
+        st.info("Nenhum resultado encontrado com os filtros aplicados.")
 
 if __name__ == "__main__":
     main()
